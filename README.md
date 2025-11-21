@@ -5,7 +5,7 @@ Simple Windows Forms application (C# .NET Framework 4.7.2) to manage students, c
 ## Features
 - Add / edit / delete students and courses
 - Record and list grades with student and course details
-- RTL UI and Arabic column headers for proper Arabic display
+
 
 ## Tech
 - C# 7.3, .NET Framework 4.7.2
@@ -22,10 +22,7 @@ Simple Windows Forms application (C# .NET Framework 4.7.2) to manage students, c
 4. Build and run.
 
 Important: keep secret data out of source control. Use environment variables or a local config file for production secrets.
-
-## Notes
-- UI helpers for RTL and header translations live in code (search for `UiHelpers.ConfigureDataGrid`).
-- If column headers remain English, open `DatabaseHelper.GetGradesDetailed()` / `GetStudents()` to confirm exact column names returned.
+ 
 
 ## Contributing
 Fixes and improvements welcome. Open an issue / PR.
