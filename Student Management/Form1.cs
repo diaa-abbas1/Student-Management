@@ -74,6 +74,10 @@ public partial class Form1 : Form
         {
             MessageBox.Show("خطأ في تحميل بيانات الطلاب: " + ex.Message, "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+        finally
+        {
+            UpdateActionButtons();
+        }
     }
 
     // دالة لمسح الحقول
@@ -96,6 +100,16 @@ public partial class Form1 : Form
         if (!ValidateInputs(out validationError))
         {
             MessageBox.Show(validationError, "بيانات ناقصة/غير صحيحة", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        // منع إضافة طالب مكرر (نقارن الاسم الأول والاسم الأخير)
+        int existingId;
+        if (StudentExists(txtFirstName.Text.Trim(), txtLastName.Text.Trim(), out existingId))
+        {
+            MessageBox.Show("طالب بنفس الاسم موجود مسبقاً ولا يمكن إضافته مرتين.", "طالب مكرر", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (existingId != 0)
+                SelectStudentRowById(existingId);
             return;
         }
 
@@ -125,6 +139,16 @@ public partial class Form1 : Form
         if (!ValidateInputs(out validationError))
         {
             MessageBox.Show(validationError, "بيانات ناقصة/غير صحيحة", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        // منع تحديث الطالب ليصبح نفس اسم طالب آخر
+        int existingId;
+        if (StudentExists(txtFirstName.Text.Trim(), txtLastName.Text.Trim(), out existingId) && existingId != 0 && existingId != selectedStudentId)
+        {
+            MessageBox.Show("يوجد طالب آخر بنفس الاسم. اختر اسماً مختلفاً أو حدّد الطالب المراد تحديثه.", "تضارب طالب", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (existingId != 0)
+                SelectStudentRowById(existingId);
             return;
         }
 
@@ -301,5 +325,93 @@ public partial class Form1 : Form
     {
         // تحديث حالة الأزرار عند تغيير أي حقل
         UpdateActionButtons();
+    }
+
+    // يفحص إن كان طالب بنفس الاسم موجود مسبقاً (يستخدم قاعدة البيانات لضمان التحقق الأحدث)
+    private bool StudentExists(string firstName, string lastName, out int existingStudentId)
+    {
+        existingStudentId = 0;
+        if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+            return false;
+
+        try
+        {
+            var dt = DatabaseHelper.GetStudents();
+            if (dt == null)
+                return false;
+
+            foreach (DataRow row in dt.Rows)
+            {
+                if (!dt.Columns.Contains("first_name") || !dt.Columns.Contains("last_name"))
+                    continue;
+
+                var fObj = row["first_name"];
+                var lObj = row["last_name"];
+                if (fObj == null || lObj == null || Convert.IsDBNull(fObj) || Convert.IsDBNull(lObj))
+                    continue;
+
+                var f = fObj.ToString().Trim();
+                var l = lObj.ToString().Trim();
+
+                if (string.Equals(f, firstName.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(l, lastName.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    if (dt.Columns.Contains("student_id") && row["student_id"] != null && !Convert.IsDBNull(row["student_id"]))
+                    {
+                        int id;
+                        if (int.TryParse(row["student_id"].ToString(), out id))
+                            existingStudentId = id;
+                    }
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // تجاهل الأخطاء الصغيرة أثناء التحقق
+        }
+
+        return false;
+    }
+
+    // يختار صف الطالب في الـ DataGridView بناءً على المعرف (يساعد المستخدم لرؤية السجل الموجود)
+    private void SelectStudentRowById(int studentId)
+    {
+        try
+        {
+            if (studentId == 0 || dgvStudents.Rows.Count == 0)
+                return;
+
+            foreach (DataGridViewRow row in dgvStudents.Rows)
+            {
+                var idCell = row.Cells["student_id"];
+                if (idCell == null || idCell.Value == null || Convert.IsDBNull(idCell.Value))
+                    continue;
+
+                int id;
+                if (int.TryParse(idCell.Value.ToString(), out id) && id == studentId)
+                {
+                    dgvStudents.ClearSelection();
+                    row.Selected = true;
+                    dgvStudents.CurrentCell = row.Cells.Count > 0 ? row.Cells[0] : null;
+                    dgvStudents.FirstDisplayedScrollingRowIndex = row.Index;
+
+                    // ملء الحقول من هذا الصف
+                    txtFirstName.Text = GetCellString(row, "first_name");
+                    txtLastName.Text = GetCellString(row, "last_name");
+                    txtClassName.Text = GetCellString(row, "class_name");
+                    txtAddress.Text = GetCellString(row, "address");
+                    txtPhone.Text = GetCellString(row, "phone");
+
+                    selectedStudentId = studentId;
+                    UpdateActionButtons();
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // تجاهل أي خطأ صغير في اختيار الصف
+        }
     }
 }
