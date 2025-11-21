@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 public partial class Form1 : Form
@@ -11,6 +12,13 @@ public partial class Form1 : Form
     public Form1()
     {
         InitializeComponent();
+
+        // ربط أحداث التغيير لتحديث حالة الأزرار فوراً
+        txtFirstName.TextChanged += InputFields_TextChanged;
+        txtLastName.TextChanged += InputFields_TextChanged;
+        txtClassName.TextChanged += InputFields_TextChanged;
+        txtAddress.TextChanged += InputFields_TextChanged;
+        txtPhone.TextChanged += InputFields_TextChanged;
     }
 
     // عند تحميل الفورم
@@ -34,6 +42,8 @@ public partial class Form1 : Form
             MessageBox.Show("خطأ غير متوقع: " + ex.Message, "خطأ فادح", MessageBoxButtons.OK, MessageBoxIcon.Error);
             Application.Exit();
         }
+
+        UpdateActionButtons();
     }
 
     // دالة لتحديث عرض بيانات الطلاب
@@ -64,6 +74,10 @@ public partial class Form1 : Form
         {
             MessageBox.Show("خطأ في تحميل بيانات الطلاب: " + ex.Message, "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+        finally
+        {
+            UpdateActionButtons();
+        }
     }
 
     // دالة لمسح الحقول
@@ -76,20 +90,32 @@ public partial class Form1 : Form
         txtPhone.Text = "";
         selectedStudentId = 0; // إعادة تعيين الطالب المحدد
         dgvStudents.ClearSelection();
+        UpdateActionButtons();
     }
 
     // عند الضغط على زر "إضافة"
     private void btnAdd_Click(object sender, EventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(txtFirstName.Text) || string.IsNullOrWhiteSpace(txtLastName.Text))
+        string validationError;
+        if (!ValidateInputs(out validationError))
         {
-            MessageBox.Show("الاسم الأول والاسم الأخير حقول إجبارية.", "بيانات ناقصة", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(validationError, "بيانات ناقصة/غير صحيحة", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        // منع إضافة طالب مكرر (نقارن الاسم الأول والاسم الأخير)
+        int existingId;
+        if (StudentExists(txtFirstName.Text.Trim(), txtLastName.Text.Trim(), out existingId))
+        {
+            MessageBox.Show("طالب بنفس الاسم موجود مسبقاً ولا يمكن إضافته مرتين.", "طالب مكرر", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (existingId != 0)
+                SelectStudentRowById(existingId);
             return;
         }
 
         try
         {
-            DatabaseHelper.AddStudent(txtFirstName.Text, txtLastName.Text, txtClassName.Text, txtAddress.Text, txtPhone.Text);
+            DatabaseHelper.AddStudent(txtFirstName.Text.Trim(), txtLastName.Text.Trim(), txtClassName.Text.Trim(), txtAddress.Text.Trim(), txtPhone.Text.Trim());
             MessageBox.Show("تمت إضافة الطالب بنجاح.", "نجاح", MessageBoxButtons.OK, MessageBoxIcon.Information);
             LoadStudentsGrid();
             ClearFields();
@@ -109,15 +135,26 @@ public partial class Form1 : Form
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(txtFirstName.Text) || string.IsNullOrWhiteSpace(txtLastName.Text))
+        string validationError;
+        if (!ValidateInputs(out validationError))
         {
-            MessageBox.Show("الاسم الأول والاسم الأخير حقول إجبارية.", "بيانات ناقصة", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(validationError, "بيانات ناقصة/غير صحيحة", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        // منع تحديث الطالب ليصبح نفس اسم طالب آخر
+        int existingId;
+        if (StudentExists(txtFirstName.Text.Trim(), txtLastName.Text.Trim(), out existingId) && existingId != 0 && existingId != selectedStudentId)
+        {
+            MessageBox.Show("يوجد طالب آخر بنفس الاسم. اختر اسماً مختلفاً أو حدّد الطالب المراد تحديثه.", "تضارب طالب", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (existingId != 0)
+                SelectStudentRowById(existingId);
             return;
         }
 
         try
         {
-            DatabaseHelper.UpdateStudent(selectedStudentId, txtFirstName.Text, txtLastName.Text, txtClassName.Text, txtAddress.Text, txtPhone.Text);
+            DatabaseHelper.UpdateStudent(selectedStudentId, txtFirstName.Text.Trim(), txtLastName.Text.Trim(), txtClassName.Text.Trim(), txtAddress.Text.Trim(), txtPhone.Text.Trim());
             MessageBox.Show("تم تحديث بيانات الطالب بنجاح.", "نجاح", MessageBoxButtons.OK, MessageBoxIcon.Information);
             LoadStudentsGrid();
             ClearFields();
@@ -170,20 +207,31 @@ public partial class Form1 : Form
             {
                 DataGridViewRow row = dgvStudents.Rows[e.RowIndex];
 
-                // تخزين رقم الطالب المحدد
-                selectedStudentId = Convert.ToInt32(row.Cells["student_id"].Value);
+                // تخزين رقم الطالب المحدد بأمان
+                selectedStudentId = 0;
+                var idCell = row.Cells["student_id"];
+                if (idCell != null && idCell.Value != null && !Convert.IsDBNull(idCell.Value))
+                {
+                    int parsedId;
+                    if (int.TryParse(idCell.Value.ToString(), out parsedId))
+                        selectedStudentId = parsedId;
+                }
 
-                // ملء الحقول (نستخدم الأسماء المعروفة من قاعدة البيانات)
-                txtFirstName.Text = row.Cells["first_name"].Value.ToString();
-                txtLastName.Text = row.Cells["last_name"].Value.ToString();
-                txtClassName.Text = row.Cells["class_name"].Value.ToString();
-                txtAddress.Text = row.Cells["address"].Value.ToString();
-                txtPhone.Text = row.Cells["phone"].Value.ToString();
+                // ملء الحقول بأمان (تفادي DBNull)
+                txtFirstName.Text = GetCellString(row, "first_name");
+                txtLastName.Text = GetCellString(row, "last_name");
+                txtClassName.Text = GetCellString(row, "class_name");
+                txtAddress.Text = GetCellString(row, "address");
+                txtPhone.Text = GetCellString(row, "phone");
             }
             catch (Exception ex)
             {
                 MessageBox.Show("خطأ في تحديد الطالب: " + ex.Message);
                 ClearFields();
+            }
+            finally
+            {
+                UpdateActionButtons();
             }
         }
     }
@@ -199,5 +247,171 @@ public partial class Form1 : Form
     {
         FormGrades formGrades = new FormGrades();
         formGrades.Show();
+    }
+
+    // --- وظائف مساعدة للتحقق وتجربة المستخدم ---
+    private bool ValidateInputs(out string errorMessage)
+    {
+        errorMessage = null;
+
+        // ضروري: الأسماء
+        if (string.IsNullOrWhiteSpace(txtFirstName.Text) || string.IsNullOrWhiteSpace(txtLastName.Text))
+        {
+            errorMessage = "الاسم الأول والاسم الأخير حقول إجبارية.";
+            return false;
+        }
+
+        // حدود طول معقولة
+        if (txtFirstName.Text.Trim().Length > 100 || txtLastName.Text.Trim().Length > 100)
+        {
+            errorMessage = "الاسم الأول أو الأخير طويل جداً (أقصى 100 حرف).";
+            return false;
+        }
+
+        if (txtClassName.Text.Trim().Length > 50)
+        {
+            errorMessage = "اسم الصف طويل جداً (أقصى 50 حرف).";
+            return false;
+        }
+
+        if (txtAddress.Text.Trim().Length > 250)
+        {
+            errorMessage = "العنوان طويل جداً (أقصى 250 حرف).";
+            return false;
+        }
+
+        // تحقق بسيط لرقم الهاتف (اختياري: إذا تم إدخاله يجب أن يكون أرقام أو مع رموز + - مسموح بها)
+        var phone = txtPhone.Text.Trim();
+        if (!string.IsNullOrEmpty(phone))
+        {
+            var phonePattern = @"^[0-9+\-\s]{6,20}$";
+            if (!Regex.IsMatch(phone, phonePattern))
+            {
+                errorMessage = "رقم الهاتف غير صالح. استخدم أرقاماً، و/أو الرموز + و - والمسافات (6-20 خانة).";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private string GetCellString(DataGridViewRow row, string columnName)
+    {
+        try
+        {
+            var cell = row.Cells[columnName];
+            if (cell == null || cell.Value == null || Convert.IsDBNull(cell.Value))
+                return string.Empty;
+            return cell.Value.ToString();
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private void UpdateActionButtons()
+    {
+        // تمكين/تعطيل أزرار التعديل والحذف اعتماداً على وجود تحديد
+        bool hasSelection = selectedStudentId != 0;
+        btnUpdate.Enabled = hasSelection;
+        btnDelete.Enabled = hasSelection;
+
+        // زر الإضافة متاح فقط إذا الحقول الإلزامية ممتلئة
+        btnAdd.Enabled = !string.IsNullOrWhiteSpace(txtFirstName.Text) && !string.IsNullOrWhiteSpace(txtLastName.Text);
+    }
+
+    private void InputFields_TextChanged(object sender, EventArgs e)
+    {
+        // تحديث حالة الأزرار عند تغيير أي حقل
+        UpdateActionButtons();
+    }
+
+    // يفحص إن كان طالب بنفس الاسم موجود مسبقاً (يستخدم قاعدة البيانات لضمان التحقق الأحدث)
+    private bool StudentExists(string firstName, string lastName, out int existingStudentId)
+    {
+        existingStudentId = 0;
+        if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
+            return false;
+
+        try
+        {
+            var dt = DatabaseHelper.GetStudents();
+            if (dt == null)
+                return false;
+
+            foreach (DataRow row in dt.Rows)
+            {
+                if (!dt.Columns.Contains("first_name") || !dt.Columns.Contains("last_name"))
+                    continue;
+
+                var fObj = row["first_name"];
+                var lObj = row["last_name"];
+                if (fObj == null || lObj == null || Convert.IsDBNull(fObj) || Convert.IsDBNull(lObj))
+                    continue;
+
+                var f = fObj.ToString().Trim();
+                var l = lObj.ToString().Trim();
+
+                if (string.Equals(f, firstName.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(l, lastName.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    if (dt.Columns.Contains("student_id") && row["student_id"] != null && !Convert.IsDBNull(row["student_id"]))
+                    {
+                        int id;
+                        if (int.TryParse(row["student_id"].ToString(), out id))
+                            existingStudentId = id;
+                    }
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // تجاهل الأخطاء الصغيرة أثناء التحقق
+        }
+
+        return false;
+    }
+
+    // يختار صف الطالب في الـ DataGridView بناءً على المعرف (يساعد المستخدم لرؤية السجل الموجود)
+    private void SelectStudentRowById(int studentId)
+    {
+        try
+        {
+            if (studentId == 0 || dgvStudents.Rows.Count == 0)
+                return;
+
+            foreach (DataGridViewRow row in dgvStudents.Rows)
+            {
+                var idCell = row.Cells["student_id"];
+                if (idCell == null || idCell.Value == null || Convert.IsDBNull(idCell.Value))
+                    continue;
+
+                int id;
+                if (int.TryParse(idCell.Value.ToString(), out id) && id == studentId)
+                {
+                    dgvStudents.ClearSelection();
+                    row.Selected = true;
+                    dgvStudents.CurrentCell = row.Cells.Count > 0 ? row.Cells[0] : null;
+                    dgvStudents.FirstDisplayedScrollingRowIndex = row.Index;
+
+                    // ملء الحقول من هذا الصف
+                    txtFirstName.Text = GetCellString(row, "first_name");
+                    txtLastName.Text = GetCellString(row, "last_name");
+                    txtClassName.Text = GetCellString(row, "class_name");
+                    txtAddress.Text = GetCellString(row, "address");
+                    txtPhone.Text = GetCellString(row, "phone");
+
+                    selectedStudentId = studentId;
+                    UpdateActionButtons();
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // تجاهل أي خطأ صغير في اختيار الصف
+        }
     }
 }
