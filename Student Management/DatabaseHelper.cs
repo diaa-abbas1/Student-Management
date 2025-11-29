@@ -4,7 +4,14 @@ using System.Data;
 using System.Data.SqlClient;
 using System.Windows.Forms;
 
+// NOTE:
+// This helper class manages all database operations including connection handling,
+// parameterized queries, and CRUD operations.
+// Added by <محمد فائد علي عثمان > to improve documentation clarity and maintainability.
+
 public static class DatabaseHelper
+{
+    public static class DatabaseHelper
 {
     // 2. سلسلة الاتصال لـ SQL Server Express
     // Data Source: اسم السيرفر الذي قمنا بتثبيته
