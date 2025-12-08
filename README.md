@@ -10,7 +10,7 @@ Simple Windows Forms application (C# .NET Framework 4.7.2) to manage students, c
 ## Tech
 - C# 7.3, .NET Framework 4.7.2
 - Windows Forms (WinForms)
-- SQL Server (LocalDB / SQLEXPRESS)
+- MYSQL  (LocalDB )
 - No external packages required
 
 ## Quick setup
